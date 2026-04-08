@@ -12,7 +12,6 @@ const CATEGORIES = [
   { value: "hat", label: "帽子" }
 ];
 
-// サンプル画像SVGをData URLで作る
 function makeSampleImage(label, bgColor) {
   const svg = `
     <svg xmlns="http://www.w3.org/2000/svg" width="400" height="400" viewBox="0 0 400 400">
@@ -43,12 +42,13 @@ const state = {
   items: loadItems(),
   registerImage: "",
   registerCategory: "tops",
-  suggestStep: 1,
-  suggestBottomType: "pants",
+  manualStep: 1,
+  manualBottomType: "pants",
   pickedBottom: null,
   pickedTop: null,
   useAccessory: false,
-  pickedAccessory: null
+  pickedAccessory: null,
+  randomOutfit: null
 };
 
 function categoryLabel(value) {
@@ -82,7 +82,6 @@ function saveItems(nextItems) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(nextItems));
 }
 
-// 削除などで選択済みアイテムが消えた時の整合性を保つ
 function sanitizePickedItems() {
   const exists = (item) => item && state.items.some((i) => i.id === item.id);
 
@@ -91,16 +90,15 @@ function sanitizePickedItems() {
   if (!exists(state.pickedAccessory)) state.pickedAccessory = null;
 }
 
-function resetSuggest() {
-  state.suggestStep = 1;
-  state.suggestBottomType = "pants";
+function resetManualFlow() {
+  state.manualStep = 1;
+  state.manualBottomType = "pants";
   state.pickedBottom = null;
   state.pickedTop = null;
   state.useAccessory = false;
   state.pickedAccessory = null;
 }
 
-// 指定スクリーンのみ active 表示、他は hidden
 function showScreen(screenName) {
   state.screen = screenName;
 
@@ -110,8 +108,7 @@ function showScreen(screenName) {
     el.classList.add("hidden");
   });
 
-  const targetId = `${screenName}Screen`;
-  const target = document.getElementById(targetId);
+  const target = document.getElementById(`${screenName}Screen`);
   if (target) {
     target.classList.remove("hidden");
     target.classList.add("active");
@@ -145,17 +142,43 @@ function createRegisterItemCard(item) {
   `;
 }
 
+function pickRandom(list) {
+  return list[Math.floor(Math.random() * list.length)];
+}
+
+// 提案モード：アプリがランダムで1コーデ提案
+function generateRandomOutfit() {
+  const tops = state.items.filter((i) => i.category === "tops");
+  const bottoms = state.items.filter((i) => i.category === "pants" || i.category === "skirt");
+  const accessories = state.items.filter((i) => i.category === "accessory");
+
+  if (tops.length === 0 || bottoms.length === 0) {
+    state.randomOutfit = null;
+    return false;
+  }
+
+  const top = pickRandom(tops);
+  const bottom = pickRandom(bottoms);
+
+  // 初期方針: 50%でアクセを使う。アクセが無い場合は使わない。
+  const useAccessory = accessories.length > 0 && Math.random() < 0.5;
+  const accessory = useAccessory ? pickRandom(accessories) : null;
+
+  state.randomOutfit = { top, bottom, accessory };
+  return true;
+}
+
 function renderHome() {
   const root = document.getElementById("homeScreen");
   root.innerHTML = `
     <div class="grid">
       <button class="home-card" id="go-suggest">
         <h3>提案モード</h3>
-        <p>順番に選んでコーデを作る</p>
+        <p>ランダムでコーデを提案</p>
       </button>
       <button class="home-card" id="go-manual">
         <h3>自分で組み合わせる</h3>
-        <p>今は仮メッセージ表示</p>
+        <p>自分で選んでコーデを作る</p>
       </button>
       <button class="home-card" id="go-register">
         <h3>服を登録する</h3>
@@ -165,10 +188,13 @@ function renderHome() {
   `;
 
   document.getElementById("go-suggest").onclick = () => {
-    resetSuggest();
+    generateRandomOutfit();
     showScreen("suggest");
   };
-  document.getElementById("go-manual").onclick = () => showScreen("manual");
+  document.getElementById("go-manual").onclick = () => {
+    resetManualFlow();
+    showScreen("manual");
+  };
   document.getElementById("go-register").onclick = () => showScreen("register");
 }
 
@@ -248,17 +274,18 @@ function renderRegister() {
     sanitizePickedItems();
     state.registerImage = "";
     state.registerCategory = "tops";
+    generateRandomOutfit();
     alert("保存しました！");
     renderScreen("register");
   };
 
-  // 削除ボタン
   root.querySelectorAll("[data-delete-id]").forEach((btn) => {
     btn.onclick = () => {
       const deleteId = Number(btn.dataset.deleteId);
       const nextItems = state.items.filter((item) => item.id !== deleteId);
       saveItems(nextItems);
       sanitizePickedItems();
+      generateRandomOutfit();
       renderScreen("register");
     };
   });
@@ -269,15 +296,51 @@ function renderRegister() {
 function renderSuggest() {
   const root = document.getElementById("suggestScreen");
 
+  const canSuggest = generateRandomOutfit();
+
+  root.innerHTML = `
+    <div class="card panel">
+      <h2>提案モード</h2>
+      ${
+        canSuggest
+          ? `
+            <div class="card panel complete-panel">
+              <h3>✨ コーデ完成</h3>
+              <p>アプリがランダムで提案したコーデです。</p>
+              <div class="items-grid">
+                ${createItemCard(state.randomOutfit.top, false)}
+                ${createItemCard(state.randomOutfit.bottom, false)}
+                ${state.randomOutfit.accessory ? createItemCard(state.randomOutfit.accessory, false) : ""}
+              </div>
+            </div>
+          `
+          : `<p>提案に必要な服が足りません。</p>`
+      }
+
+      <div class="actions">
+        <button id="regenerate">新しいランダムコーデ</button>
+        <button class="secondary" id="back-home">ホームへ戻る</button>
+      </div>
+    </div>
+  `;
+
+  document.getElementById("regenerate").onclick = () => renderScreen("suggest");
+  document.getElementById("back-home").onclick = () => showScreen("home");
+}
+
+// 自分で組み合わせる：ステップ選択UI
+function renderManual() {
+  const root = document.getElementById("manualScreen");
+
   sanitizePickedItems();
 
   const tops = state.items.filter((i) => i.category === "tops");
-  const bottoms = state.items.filter((i) => i.category === state.suggestBottomType);
+  const bottoms = state.items.filter((i) => i.category === state.manualBottomType);
   const accessories = state.items.filter((i) => i.category === "accessory");
 
   let stepHtml = "";
 
-  if (state.suggestStep === 1) {
+  if (state.manualStep === 1) {
     stepHtml = `
       <p>1. ズボンかスカートを選んでください。</p>
       <div class="actions">
@@ -287,7 +350,7 @@ function renderSuggest() {
     `;
   }
 
-  if (state.suggestStep === 2) {
+  if (state.manualStep === 2) {
     stepHtml = `
       <p>2. ボトムを選んでください。</p>
       ${
@@ -295,7 +358,7 @@ function renderSuggest() {
           ? `<div class="items-grid">${bottoms
               .map((item) => createItemCard(item, state.pickedBottom && state.pickedBottom.id === item.id))
               .join("")}</div>`
-          : `<p>${state.suggestBottomType === "pants" ? "ズボン" : "スカート"}が未登録です。</p>`
+          : `<p>${state.manualBottomType === "pants" ? "ズボン" : "スカート"}が未登録です。</p>`
       }
       <div class="actions">
         <button id="next-top" ${state.pickedBottom ? "" : "disabled"}>次へ</button>
@@ -303,7 +366,7 @@ function renderSuggest() {
     `;
   }
 
-  if (state.suggestStep === 3) {
+  if (state.manualStep === 3) {
     stepHtml = `
       <p>3. トップスを選んでください。</p>
       ${
@@ -319,7 +382,7 @@ function renderSuggest() {
     `;
   }
 
-  if (state.suggestStep === 4) {
+  if (state.manualStep === 4) {
     stepHtml = `
       <p>4. アクセを選びますか？</p>
       <div class="actions">
@@ -329,7 +392,7 @@ function renderSuggest() {
     `;
   }
 
-  if (state.suggestStep === 5) {
+  if (state.manualStep === 5) {
     stepHtml = `
       <p>5. アクセを選んでください。</p>
       ${
@@ -345,18 +408,18 @@ function renderSuggest() {
     `;
   }
 
-  if (state.suggestStep === 6) {
+  if (state.manualStep === 6) {
     stepHtml = `
       <div class="card panel complete-panel">
         <h3>✨ コーデ完成</h3>
-        <p>選んだコーデはこちらです。</p>
+        <p>自分で選んだコーデです。</p>
         <div class="items-grid">
           ${state.pickedBottom ? createItemCard(state.pickedBottom, false) : ""}
           ${state.pickedTop ? createItemCard(state.pickedTop, false) : ""}
           ${state.useAccessory && state.pickedAccessory ? createItemCard(state.pickedAccessory, false) : ""}
         </div>
         <div class="actions">
-          <button id="restart-suggest">もう一度選ぶ</button>
+          <button id="restart-manual">もう一度選ぶ</button>
         </div>
       </div>
     `;
@@ -364,7 +427,7 @@ function renderSuggest() {
 
   root.innerHTML = `
     <div class="card panel">
-      <h2>提案モード</h2>
+      <h2>自分で組み合わせる</h2>
       ${stepHtml}
       <div class="actions">
         <button class="secondary" id="back-home">ホームへ戻る</button>
@@ -374,107 +437,92 @@ function renderSuggest() {
 
   const byId = (id) => document.getElementById(id);
 
-  if (state.suggestStep === 1) {
+  if (state.manualStep === 1) {
     byId("pick-pants").onclick = () => {
-      state.suggestBottomType = "pants";
-      state.suggestStep = 2;
+      state.manualBottomType = "pants";
+      state.manualStep = 2;
       state.pickedBottom = null;
-      renderScreen("suggest");
+      renderScreen("manual");
     };
     byId("pick-skirt").onclick = () => {
-      state.suggestBottomType = "skirt";
-      state.suggestStep = 2;
+      state.manualBottomType = "skirt";
+      state.manualStep = 2;
       state.pickedBottom = null;
-      renderScreen("suggest");
+      renderScreen("manual");
     };
   }
 
-  if (state.suggestStep === 2) {
+  if (state.manualStep === 2) {
     root.querySelectorAll("[data-item-id]").forEach((el) => {
       el.onclick = () => {
         const id = Number(el.dataset.itemId);
         state.pickedBottom = bottoms.find((i) => i.id === id) || null;
-        renderScreen("suggest");
+        renderScreen("manual");
       };
     });
     if (byId("next-top")) {
       byId("next-top").onclick = () => {
-        state.suggestStep = 3;
-        renderScreen("suggest");
+        state.manualStep = 3;
+        renderScreen("manual");
       };
     }
   }
 
-  if (state.suggestStep === 3) {
+  if (state.manualStep === 3) {
     root.querySelectorAll("[data-item-id]").forEach((el) => {
       el.onclick = () => {
         const id = Number(el.dataset.itemId);
         state.pickedTop = tops.find((i) => i.id === id) || null;
-        renderScreen("suggest");
+        renderScreen("manual");
       };
     });
     if (byId("next-accessory-option")) {
       byId("next-accessory-option").onclick = () => {
-        state.suggestStep = 4;
-        renderScreen("suggest");
+        state.manualStep = 4;
+        renderScreen("manual");
       };
     }
   }
 
-  if (state.suggestStep === 4) {
+  if (state.manualStep === 4) {
     byId("yes-accessory").onclick = () => {
       state.useAccessory = true;
-      state.suggestStep = 5;
-      renderScreen("suggest");
+      state.manualStep = 5;
+      renderScreen("manual");
     };
     byId("no-accessory").onclick = () => {
       state.useAccessory = false;
       state.pickedAccessory = null;
-      state.suggestStep = 6;
-      renderScreen("suggest");
+      state.manualStep = 6;
+      renderScreen("manual");
     };
   }
 
-  if (state.suggestStep === 5) {
+  if (state.manualStep === 5) {
     root.querySelectorAll("[data-item-id]").forEach((el) => {
       el.onclick = () => {
         const id = Number(el.dataset.itemId);
         state.pickedAccessory = accessories.find((i) => i.id === id) || null;
-        renderScreen("suggest");
+        renderScreen("manual");
       };
     });
     byId("next-review").onclick = () => {
-      state.suggestStep = 6;
-      renderScreen("suggest");
+      state.manualStep = 6;
+      renderScreen("manual");
     };
   }
 
-  if (state.suggestStep === 6) {
-    byId("restart-suggest").onclick = () => {
-      resetSuggest();
-      renderScreen("suggest");
+  if (state.manualStep === 6) {
+    byId("restart-manual").onclick = () => {
+      resetManualFlow();
+      renderScreen("manual");
     };
   }
 
   byId("back-home").onclick = () => {
-    resetSuggest();
+    resetManualFlow();
     showScreen("home");
   };
-}
-
-function renderManual() {
-  const root = document.getElementById("manualScreen");
-  root.innerHTML = `
-    <div class="card panel">
-      <h2>自分で組み合わせる</h2>
-      <p>この画面は仮です。今後、自由に服を並べてコーデを作れるようにします。</p>
-      <div class="actions">
-        <button class="secondary" id="back-home">ホームへ戻る</button>
-      </div>
-    </div>
-  `;
-
-  document.getElementById("back-home").onclick = () => showScreen("home");
 }
 
 function renderScreen(name) {
