@@ -14,6 +14,31 @@ const CATEGORIES = [
   { value: "hat", label: "帽子" }
 ];
 
+// サンプル画像SVGをData URLで作る（GitHub Pagesでもそのまま表示可能）
+function makeSampleImage(label, bgColor) {
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="400" height="400" viewBox="0 0 400 400">
+      <rect width="400" height="400" fill="${bgColor}" />
+      <rect x="20" y="20" width="360" height="360" rx="28" fill="white" fill-opacity="0.3" />
+      <text x="200" y="215" text-anchor="middle" font-size="42" font-family="sans-serif" fill="#333">${label}</text>
+    </svg>
+  `;
+  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
+}
+
+// 初回表示用サンプルデータ（要件: tops 3, pants 2, skirt 2, accessory 2）
+const sampleItems = [
+  { id: 1001, image: makeSampleImage("TOPS 1", "#ffd7e6"), category: "tops" },
+  { id: 1002, image: makeSampleImage("TOPS 2", "#ffc8dc"), category: "tops" },
+  { id: 1003, image: makeSampleImage("TOPS 3", "#ffbdd4"), category: "tops" },
+  { id: 2001, image: makeSampleImage("PANTS 1", "#d6e8ff"), category: "pants" },
+  { id: 2002, image: makeSampleImage("PANTS 2", "#c8deff"), category: "pants" },
+  { id: 3001, image: makeSampleImage("SKIRT 1", "#ffe8f2"), category: "skirt" },
+  { id: 3002, image: makeSampleImage("SKIRT 2", "#ffdbe9"), category: "skirt" },
+  { id: 4001, image: makeSampleImage("ACC 1", "#fff1bf"), category: "accessory" },
+  { id: 4002, image: makeSampleImage("ACC 2", "#ffe8a7"), category: "accessory" }
+];
+
 // 画面ID
 const VIEW_IDS = ["home", "register", "suggest", "manual"];
 
@@ -41,11 +66,26 @@ function categoryLabel(value) {
 function loadItems() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
+
+    // localStorageが空なら初回サンプルを自動投入
+    if (!raw) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(sampleItems));
+      return sampleItems;
+    }
+
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+
+    // 配列が空のときもサンプルを投入
+    if (Array.isArray(parsed) && parsed.length === 0) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(sampleItems));
+      return sampleItems;
+    }
+
+    return Array.isArray(parsed) ? parsed : sampleItems;
   } catch {
-    return [];
+    // 壊れたデータ時はサンプルで復旧
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(sampleItems));
+    return sampleItems;
   }
 }
 
