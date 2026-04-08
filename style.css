@@ -161,3 +161,30 @@ button:disabled {
   display: grid;
   gap: 2px;
 }
+
+
+.screen.active {
+  display: block;
+}
+
+.register-item {
+  cursor: default;
+}
+
+.delete-btn {
+  margin-top: 8px;
+  width: 100%;
+  background: #fff;
+  border: 1px solid #e8afc1;
+  color: #8a4f64;
+}
+
+.complete-panel {
+  margin-top: 8px;
+  border-color: #e8afc1;
+  background: #fff7fb;
+}
+
+.complete-panel h3 {
+  margin-top: 0;
+}

@@ -2,10 +2,8 @@
 // 服コーデ提案アプリ（npm不要・1ページ構成）
 // =========================================
 
-// localStorageのキー
 const STORAGE_KEY = "clothes-saku-items";
 
-// カテゴリ定義（仕様どおり）
 const CATEGORIES = [
   { value: "tops", label: "トップス" },
   { value: "pants", label: "ズボン" },
@@ -14,7 +12,7 @@ const CATEGORIES = [
   { value: "hat", label: "帽子" }
 ];
 
-// サンプル画像SVGをData URLで作る（GitHub Pagesでもそのまま表示可能）
+// サンプル画像SVGをData URLで作る
 function makeSampleImage(label, bgColor) {
   const svg = `
     <svg xmlns="http://www.w3.org/2000/svg" width="400" height="400" viewBox="0 0 400 400">
@@ -26,7 +24,6 @@ function makeSampleImage(label, bgColor) {
   return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
 }
 
-// 初回表示用サンプルデータ（要件: tops 3, pants 2, skirt 2, accessory 2）
 const sampleItems = [
   { id: 1001, image: makeSampleImage("TOPS 1", "#ffd7e6"), category: "tops" },
   { id: 1002, image: makeSampleImage("TOPS 2", "#ffc8dc"), category: "tops" },
@@ -39,12 +36,10 @@ const sampleItems = [
   { id: 4002, image: makeSampleImage("ACC 2", "#ffe8a7"), category: "accessory" }
 ];
 
-// 画面ID
-const VIEW_IDS = ["home", "register", "suggest", "manual"];
+const SCREEN_IDS = ["homeScreen", "registerScreen", "suggestScreen", "manualScreen"];
 
-// アプリ全体の状態
 const state = {
-  view: "home",
+  screen: "home",
   items: loadItems(),
   registerImage: "",
   registerCategory: "tops",
@@ -56,52 +51,46 @@ const state = {
   pickedAccessory: null
 };
 
-// カテゴリ名を見やすく変換
 function categoryLabel(value) {
   const found = CATEGORIES.find((c) => c.value === value);
   return found ? found.label : value;
 }
 
-// localStorageから読み込み
 function loadItems() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-
-    // localStorageが空なら初回サンプルを自動投入
     if (!raw) {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(sampleItems));
-      return sampleItems;
+      return [...sampleItems];
     }
 
     const parsed = JSON.parse(raw);
-
-    // 配列が空のときもサンプルを投入
     if (Array.isArray(parsed) && parsed.length === 0) {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(sampleItems));
-      return sampleItems;
+      return [...sampleItems];
     }
 
-    return Array.isArray(parsed) ? parsed : sampleItems;
+    return Array.isArray(parsed) ? parsed : [...sampleItems];
   } catch {
-    // 壊れたデータ時はサンプルで復旧
     localStorage.setItem(STORAGE_KEY, JSON.stringify(sampleItems));
-    return sampleItems;
+    return [...sampleItems];
   }
 }
 
-// localStorageへ保存
 function saveItems(nextItems) {
   state.items = nextItems;
   localStorage.setItem(STORAGE_KEY, JSON.stringify(nextItems));
 }
 
-// 画面切り替え
-function setView(nextView) {
-  state.view = nextView;
-  render();
+// 削除などで選択済みアイテムが消えた時の整合性を保つ
+function sanitizePickedItems() {
+  const exists = (item) => item && state.items.some((i) => i.id === item.id);
+
+  if (!exists(state.pickedBottom)) state.pickedBottom = null;
+  if (!exists(state.pickedTop)) state.pickedTop = null;
+  if (!exists(state.pickedAccessory)) state.pickedAccessory = null;
 }
 
-// 提案モードを初期状態に戻す
 function resetSuggest() {
   state.suggestStep = 1;
   state.suggestBottomType = "pants";
@@ -111,7 +100,26 @@ function resetSuggest() {
   state.pickedAccessory = null;
 }
 
-// 共通: 服カードHTML
+// 指定スクリーンのみ active 表示、他は hidden
+function showScreen(screenName) {
+  state.screen = screenName;
+
+  SCREEN_IDS.forEach((id) => {
+    const el = document.getElementById(id);
+    el.classList.remove("active");
+    el.classList.add("hidden");
+  });
+
+  const targetId = `${screenName}Screen`;
+  const target = document.getElementById(targetId);
+  if (target) {
+    target.classList.remove("hidden");
+    target.classList.add("active");
+  }
+
+  renderScreen(screenName);
+}
+
 function createItemCard(item, selected) {
   return `
     <button class="item-card ${selected ? "selected" : ""}" data-item-id="${item.id}">
@@ -124,9 +132,21 @@ function createItemCard(item, selected) {
   `;
 }
 
-// ホーム画面
+function createRegisterItemCard(item) {
+  return `
+    <div class="item-card register-item" data-item-wrap-id="${item.id}">
+      <img src="${item.image}" alt="${categoryLabel(item.category)}" />
+      <div class="item-meta">
+        <strong>${categoryLabel(item.category)}</strong>
+        <small>ID: ${item.id}</small>
+      </div>
+      <button class="delete-btn" data-delete-id="${item.id}">削除</button>
+    </div>
+  `;
+}
+
 function renderHome() {
-  const root = document.getElementById("view-home");
+  const root = document.getElementById("homeScreen");
   root.innerHTML = `
     <div class="grid">
       <button class="home-card" id="go-suggest">
@@ -146,22 +166,21 @@ function renderHome() {
 
   document.getElementById("go-suggest").onclick = () => {
     resetSuggest();
-    setView("suggest");
+    showScreen("suggest");
   };
-  document.getElementById("go-manual").onclick = () => setView("manual");
-  document.getElementById("go-register").onclick = () => setView("register");
+  document.getElementById("go-manual").onclick = () => showScreen("manual");
+  document.getElementById("go-register").onclick = () => showScreen("register");
 }
 
-// 服登録画面
 function renderRegister() {
-  const root = document.getElementById("view-register");
+  const root = document.getElementById("registerScreen");
 
-  const categoryOptions = CATEGORIES.map(
+  const optionsHtml = CATEGORIES.map(
     (cat) => `<option value="${cat.value}" ${state.registerCategory === cat.value ? "selected" : ""}>${cat.label}</option>`
   ).join("");
 
   const itemsHtml = state.items.length
-    ? `<div class="items-grid">${state.items.map((item) => createItemCard(item, false)).join("")}</div>`
+    ? `<div class="items-grid">${state.items.map((item) => createRegisterItemCard(item)).join("")}</div>`
     : "<p>まだ服が登録されていません。</p>";
 
   root.innerHTML = `
@@ -175,7 +194,7 @@ function renderRegister() {
 
       <label class="field">
         カテゴリ
-        <select id="category-select">${categoryOptions}</select>
+        <select id="category-select">${optionsHtml}</select>
       </label>
 
       ${
@@ -195,7 +214,6 @@ function renderRegister() {
     </div>
   `;
 
-  // 画像アップロード処理
   document.getElementById("file-input").onchange = (e) => {
     const file = e.target.files && e.target.files[0];
     if (!file) return;
@@ -204,18 +222,16 @@ function renderRegister() {
     reader.onload = () => {
       if (typeof reader.result === "string") {
         state.registerImage = reader.result;
-        render();
+        renderScreen("register");
       }
     };
     reader.readAsDataURL(file);
   };
 
-  // カテゴリ変更
   document.getElementById("category-select").onchange = (e) => {
     state.registerCategory = e.target.value;
   };
 
-  // 保存
   document.getElementById("save-item").onclick = () => {
     if (!state.registerImage) {
       alert("画像をアップロードしてください。");
@@ -229,18 +245,31 @@ function renderRegister() {
     };
 
     saveItems([newItem, ...state.items]);
+    sanitizePickedItems();
     state.registerImage = "";
     state.registerCategory = "tops";
     alert("保存しました！");
-    render();
+    renderScreen("register");
   };
 
-  document.getElementById("back-home").onclick = () => setView("home");
+  // 削除ボタン
+  root.querySelectorAll("[data-delete-id]").forEach((btn) => {
+    btn.onclick = () => {
+      const deleteId = Number(btn.dataset.deleteId);
+      const nextItems = state.items.filter((item) => item.id !== deleteId);
+      saveItems(nextItems);
+      sanitizePickedItems();
+      renderScreen("register");
+    };
+  });
+
+  document.getElementById("back-home").onclick = () => showScreen("home");
 }
 
-// 提案モード画面
 function renderSuggest() {
-  const root = document.getElementById("view-suggest");
+  const root = document.getElementById("suggestScreen");
+
+  sanitizePickedItems();
 
   const tops = state.items.filter((i) => i.category === "tops");
   const bottoms = state.items.filter((i) => i.category === state.suggestBottomType);
@@ -318,14 +347,17 @@ function renderSuggest() {
 
   if (state.suggestStep === 6) {
     stepHtml = `
-      <p>6. コーデ確認</p>
-      <div class="items-grid">
-        ${state.pickedBottom ? createItemCard(state.pickedBottom, false) : ""}
-        ${state.pickedTop ? createItemCard(state.pickedTop, false) : ""}
-        ${state.useAccessory && state.pickedAccessory ? createItemCard(state.pickedAccessory, false) : ""}
-      </div>
-      <div class="actions">
-        <button id="restart-suggest">もう一度選ぶ</button>
+      <div class="card panel complete-panel">
+        <h3>✨ コーデ完成</h3>
+        <p>選んだコーデはこちらです。</p>
+        <div class="items-grid">
+          ${state.pickedBottom ? createItemCard(state.pickedBottom, false) : ""}
+          ${state.pickedTop ? createItemCard(state.pickedTop, false) : ""}
+          ${state.useAccessory && state.pickedAccessory ? createItemCard(state.pickedAccessory, false) : ""}
+        </div>
+        <div class="actions">
+          <button id="restart-suggest">もう一度選ぶ</button>
+        </div>
       </div>
     `;
   }
@@ -347,13 +379,13 @@ function renderSuggest() {
       state.suggestBottomType = "pants";
       state.suggestStep = 2;
       state.pickedBottom = null;
-      render();
+      renderScreen("suggest");
     };
     byId("pick-skirt").onclick = () => {
       state.suggestBottomType = "skirt";
       state.suggestStep = 2;
       state.pickedBottom = null;
-      render();
+      renderScreen("suggest");
     };
   }
 
@@ -362,13 +394,13 @@ function renderSuggest() {
       el.onclick = () => {
         const id = Number(el.dataset.itemId);
         state.pickedBottom = bottoms.find((i) => i.id === id) || null;
-        render();
+        renderScreen("suggest");
       };
     });
     if (byId("next-top")) {
       byId("next-top").onclick = () => {
         state.suggestStep = 3;
-        render();
+        renderScreen("suggest");
       };
     }
   }
@@ -378,13 +410,13 @@ function renderSuggest() {
       el.onclick = () => {
         const id = Number(el.dataset.itemId);
         state.pickedTop = tops.find((i) => i.id === id) || null;
-        render();
+        renderScreen("suggest");
       };
     });
     if (byId("next-accessory-option")) {
       byId("next-accessory-option").onclick = () => {
         state.suggestStep = 4;
-        render();
+        renderScreen("suggest");
       };
     }
   }
@@ -393,13 +425,13 @@ function renderSuggest() {
     byId("yes-accessory").onclick = () => {
       state.useAccessory = true;
       state.suggestStep = 5;
-      render();
+      renderScreen("suggest");
     };
     byId("no-accessory").onclick = () => {
       state.useAccessory = false;
       state.pickedAccessory = null;
       state.suggestStep = 6;
-      render();
+      renderScreen("suggest");
     };
   }
 
@@ -408,31 +440,30 @@ function renderSuggest() {
       el.onclick = () => {
         const id = Number(el.dataset.itemId);
         state.pickedAccessory = accessories.find((i) => i.id === id) || null;
-        render();
+        renderScreen("suggest");
       };
     });
     byId("next-review").onclick = () => {
       state.suggestStep = 6;
-      render();
+      renderScreen("suggest");
     };
   }
 
   if (state.suggestStep === 6) {
     byId("restart-suggest").onclick = () => {
       resetSuggest();
-      render();
+      renderScreen("suggest");
     };
   }
 
   byId("back-home").onclick = () => {
     resetSuggest();
-    setView("home");
+    showScreen("home");
   };
 }
 
-// 自分で組み合わせる（仮）
 function renderManual() {
-  const root = document.getElementById("view-manual");
+  const root = document.getElementById("manualScreen");
   root.innerHTML = `
     <div class="card panel">
       <h2>自分で組み合わせる</h2>
@@ -443,26 +474,14 @@ function renderManual() {
     </div>
   `;
 
-  document.getElementById("back-home").onclick = () => setView("home");
+  document.getElementById("back-home").onclick = () => showScreen("home");
 }
 
-// 画面全体の再描画
-function render() {
-  // まず全部隠す
-  VIEW_IDS.forEach((name) => {
-    const el = document.getElementById(`view-${name}`);
-    el.classList.add("hidden");
-  });
-
-  // 表示したい画面だけ表示して中身を描画
-  const current = document.getElementById(`view-${state.view}`);
-  current.classList.remove("hidden");
-
-  if (state.view === "home") renderHome();
-  if (state.view === "register") renderRegister();
-  if (state.view === "suggest") renderSuggest();
-  if (state.view === "manual") renderManual();
+function renderScreen(name) {
+  if (name === "home") renderHome();
+  if (name === "register") renderRegister();
+  if (name === "suggest") renderSuggest();
+  if (name === "manual") renderManual();
 }
 
-// 初回起動
-render();
+showScreen("home");
